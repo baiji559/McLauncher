@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/McLauncher.Core/McLauncher.Core.csproj" />
+    <Project Path="src/McLauncher.App/McLauncher.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/McLauncher.Core.Tests/McLauncher.Core.Tests.csproj" />
+  </Folder>
+</Solution>
+
