@@ -9,7 +9,7 @@ using McLauncher.Core;
 
 namespace McLauncher.App;
 
-public sealed class MainViewModel : ViewModelBase, IDisposable
+public sealed partial class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly PortableMcClient _client;
     private readonly SettingsStore _settingsStore;
@@ -42,6 +42,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         LaunchCommand = new AsyncCommand(() => RunAsync("启动游戏", LaunchAsync), () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         ClearLogsCommand = new RelayCommand(Logs.Clear);
+        InitializeContentCommands();
     }
 
     public ObservableCollection<string> Versions { get; } = ["release"];
@@ -58,13 +59,13 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
     public string GameDirectory
     {
         get => _gameDirectory;
-        set => Set(ref _gameDirectory, value);
+        set { if (Set(ref _gameDirectory, value)) Notify(nameof(ContentDestination)); }
     }
 
     public string SelectedVersion
     {
         get => _selectedVersion;
-        set => Set(ref _selectedVersion, value);
+        set { if (Set(ref _selectedVersion, value)) Notify(nameof(ContentDestination)); }
     }
 
     public MinecraftAccount? SelectedAccount
@@ -126,6 +127,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             ((AsyncCommand)RepairCommand).NotifyCanExecuteChanged();
             ((AsyncCommand)LaunchCommand).NotifyCanExecuteChanged();
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+            NotifyContentCommands();
+            Notify(nameof(CanEditContent));
         }
     }
 
@@ -154,6 +157,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         MemoryMb = Math.Clamp(settings.MemoryMb, 1024, 32768);
         UseMicrosoft = settings.UseMicrosoftAccount;
         OfflineUsername = settings.OfflineUsername;
+        ContentUseSystemProxy = settings.ContentUseSystemProxy;
 
         await RunAsync("初始化", async cancellationToken =>
         {
@@ -170,7 +174,8 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         MemoryMb = MemoryMb,
         UseMicrosoftAccount = UseMicrosoft,
         OfflineUsername = OfflineUsername,
-        MicrosoftAccountUuid = SelectedAccount?.Uuid
+        MicrosoftAccountUuid = SelectedAccount?.Uuid,
+        ContentUseSystemProxy = ContentUseSystemProxy
     });
 
     public void Dispose()
@@ -178,6 +183,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
         _client.EventReceived -= OnPortableMcEvent;
         _operation?.Cancel();
         _operation?.Dispose();
+        _contentHttp.Dispose();
     }
 
     private async Task RefreshAsync(CancellationToken cancellationToken)
@@ -257,7 +263,7 @@ public sealed class MainViewModel : ViewModelBase, IDisposable
             if (!Versions.Contains(version.Id)) Versions.Add(version.Id);
         if (location.SuggestedVersion is { } suggested && !Versions.Contains(suggested)) Versions.Insert(0, suggested);
         if (Versions.Count == 0) Versions.Add("release");
-        SelectedVersion = Versions.Contains(selected) ? selected : Versions[0];
+        SelectedVersion = string.IsNullOrWhiteSpace(selected) ? Versions[0] : selected;
         if (local.Count > 0) AppendLog($"已识别 {local.Count} 个本地版本");
     }
 

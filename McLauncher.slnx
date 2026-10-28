@@ -4,6 +4,7 @@
     <Project Path="src/McLauncher.App/McLauncher.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/McLauncher.App.Tests/McLauncher.App.Tests.csproj" />
     <Project Path="tests/McLauncher.Core.Tests/McLauncher.Core.Tests.csproj" />
   </Folder>
 </Solution>

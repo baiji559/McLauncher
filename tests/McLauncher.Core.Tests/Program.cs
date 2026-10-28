@@ -7,7 +7,15 @@ var tests = new (string Name, Action Run)[]
     ("构造微软启动参数", BuildMicrosoftArguments),
     ("构造修复参数", BuildRepairArguments),
     ("构造本地搜索参数", BuildLocalSearchArguments),
-    ("识别隔离版本目录", ResolveIsolatedVersionDirectory)
+    ("识别隔离版本目录", ResolveIsolatedVersionDirectory),
+    ("双平台四类资源搜索及认证", ContentTests.CatalogRequests),
+    ("中文别名双平台搜索与相关性排序", ContentTests.ChineseSearch),
+    ("文件列表筛选分页与受限直链", ContentTests.FileLists),
+    ("下载哈希长度校验与禁止覆盖", ContentTests.DownloadIntegrity),
+    ("安全文件名取消清理与下载目录", ContentTests.DownloadSafety),
+    ("TLS 握手失败后兼容重试", NetworkTests.TlsRecovery),
+    ("网络重试上限与底层错误信息", NetworkTests.RetryLimits),
+    ("HTTP 重试限流与取消", NetworkTests.StatusAndCancellation)
 };
 
 foreach (var test in tests)
@@ -15,6 +23,10 @@ foreach (var test in tests)
     test.Run();
     Console.WriteLine($"PASS {test.Name}");
 }
+
+if (args.Contains("--live")) await ContentTests.LiveModrinthAsync();
+if (args.Contains("--live-search")) await ContentTests.LiveChineseSearchAsync();
+if (args.Contains("--live-network")) await NetworkTests.LiveModesAsync();
 
 static void ParseMachineEvent()
 {

@@ -5,4 +5,5 @@ obj/
 *.suo
 artifacts/
 .dotnet-home/
+portablemc_msa.json
 

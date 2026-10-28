@@ -48,5 +48,6 @@ public sealed class LauncherSettings
     public bool UseMicrosoftAccount { get; set; } = true;
     public string OfflineUsername { get; set; } = "Player";
     public string? MicrosoftAccountUuid { get; set; }
+    public bool ContentUseSystemProxy { get; set; } = true;
 }
 
