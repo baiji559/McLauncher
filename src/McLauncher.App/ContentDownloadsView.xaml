@@ -1,8 +1,9 @@
 <UserControl x:Class="McLauncher.App.ContentDownloadsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}">
-  <Grid Margin="8">
+             FontFamily="{StaticResource BodyFont}" FontSize="13" Foreground="{StaticResource TextBrush}"
+             Background="{StaticResource CanvasBrush}">
+  <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
@@ -19,44 +20,44 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <StackPanel Margin="0,0,10,0">
-          <TextBlock Text="平台" />
+          <TextBlock Text="平台" Style="{StaticResource Caption}" />
           <ComboBox Margin="0,4,0,0" ItemsSource="{Binding ContentPlatforms}" DisplayMemberPath="Label" SelectedValuePath="Value"
                     SelectedValue="{Binding ContentPlatform}" />
         </StackPanel>
         <StackPanel Grid.Column="1" Margin="0,0,10,0">
-          <TextBlock Text="资源类型" />
+          <TextBlock Text="资源类型" Style="{StaticResource Caption}" />
           <ComboBox Margin="0,4,0,0" ItemsSource="{Binding ContentKinds}" DisplayMemberPath="Label" SelectedValuePath="Value"
                     SelectedValue="{Binding ContentKind}" />
         </StackPanel>
         <StackPanel Grid.Column="2" Margin="0,0,10,0">
-          <TextBlock Text="游戏版本（可留空）" />
-          <TextBox Margin="0,4,0,0" Text="{Binding ContentGameVersion, UpdateSourceTrigger=PropertyChanged}" ToolTip="例如 1.20.1；留空为全部版本" />
+          <TextBlock Text="游戏版本" Style="{StaticResource Caption}" />
+          <TextBox FontFamily="{StaticResource MonoFont}" Margin="0,4,0,0" Text="{Binding ContentGameVersion, UpdateSourceTrigger=PropertyChanged}" ToolTip="例如 1.20.1；留空为全部版本" />
         </StackPanel>
         <StackPanel Grid.Column="3" Margin="0,0,10,0">
-          <TextBlock Text="加载器 / 光影支持" />
+          <TextBlock Text="加载器 / 光影支持" Style="{StaticResource Caption}" />
           <ComboBox Margin="0,4,0,0" ItemsSource="{Binding ContentLoaders}" DisplayMemberPath="Label" SelectedValuePath="Value"
                     SelectedValue="{Binding ContentLoader}" />
         </StackPanel>
         <StackPanel Grid.Column="4" Margin="0,0,10,0">
-          <TextBlock Text="关键词（支持常见中文名）" />
+          <TextBlock Text="关键词" Style="{StaticResource Caption}" />
           <TextBox Margin="0,4,0,0" Text="{Binding ContentQuery, UpdateSourceTrigger=PropertyChanged}" ToolTip="可输入苹果皮、锂、实体渲染机制优化，也支持英文名和常见缩写">
             <TextBox.InputBindings>
               <KeyBinding Key="Enter" Command="{Binding SearchContentCommand}" />
             </TextBox.InputBindings>
           </TextBox>
         </StackPanel>
-        <Button Grid.Column="5" Content="搜索" VerticalAlignment="Bottom" Command="{Binding SearchContentCommand}" />
+        <Button Grid.Column="5" Style="{StaticResource PrimaryButton}" Content="搜索" VerticalAlignment="Bottom" Command="{Binding SearchContentCommand}" />
       </Grid>
-      <TextBlock Margin="0,6,0,0" Text="{Binding ContentSearchHint}" Foreground="DimGray" TextWrapping="Wrap" />
+      <TextBlock Margin="0,6,0,0" Text="{Binding ContentSearchHint}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
       <Expander Header="网络设置 / CurseForge API Key" Margin="0,6,0,6" IsEnabled="{Binding CanEditContent}">
         <StackPanel Margin="4,6,4,4">
           <CheckBox Content="使用系统代理（取消勾选则直连）" IsChecked="{Binding ContentUseSystemProxy}" />
           <TextBlock Margin="0,4,0,8" Text="连接失败会自动重试。若仍失败，可切换此选项后重新搜索；不会更改 Windows 的代理设置。"
-                     TextWrapping="Wrap" Foreground="DimGray" />
+                     TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" />
           <TextBlock Text="CurseForge 官方 API 需要密钥。可填写在下方，或使用 CURSEFORGE_API_KEY 环境变量；密钥仅在本次运行中使用。"
-                     TextWrapping="Wrap" Foreground="DimGray" />
+                     TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" />
           <PasswordBox Margin="0,6,0,0" PasswordChanged="ApiKey_PasswordChanged" MaxLength="512" />
-          <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="DimGray">
+          <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}">
             <Run Text="申请地址：" /><Hyperlink NavigateUri="https://console.curseforge.com/" RequestNavigate="ApiConsole_RequestNavigate">CurseForge for Studios</Hyperlink>
           </TextBlock>
         </StackPanel>
@@ -79,13 +80,15 @@
                    IsEnabled="{Binding CanEditContent}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                    ScrollViewer.VerticalScrollBarVisibility="Auto">
             <ListBox.ItemContainerStyle>
-              <Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+              <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="4,6">
-                  <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding Subtitle}" Margin="0,4,0,4" Foreground="DimGray" TextWrapping="Wrap" />
+                  <TextBlock Style="{StaticResource BalancedTitleText}" ToolTip="{Binding DisplayTitle}">
+                    <TextBlock.Text><MultiBinding Converter="{StaticResource BalancedTitle}"><Binding Path="DisplayTitle" /><Binding Path="ActualWidth" RelativeSource="{RelativeSource Self}" /><Binding RelativeSource="{RelativeSource Self}" /></MultiBinding></TextBlock.Text>
+                  </TextBlock>
+                  <TextBlock Text="{Binding Subtitle}" Margin="0,4,0,4" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
                   <TextBlock Text="{Binding Description}" TextWrapping="Wrap" MaxHeight="52" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
               </DataTemplate>
@@ -115,14 +118,16 @@
                    IsEnabled="{Binding CanEditContent}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                    ScrollViewer.VerticalScrollBarVisibility="Auto">
             <ListBox.ItemContainerStyle>
-              <Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+              <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="4,6">
-                  <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding FileName}" Margin="0,4,0,4" TextWrapping="Wrap" />
-                  <TextBlock Text="{Binding Details}" Foreground="DimGray" TextWrapping="Wrap" MaxHeight="56" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Style="{StaticResource BalancedTitleText}" ToolTip="{Binding DisplayName}">
+                    <TextBlock.Text><MultiBinding Converter="{StaticResource BalancedTitle}"><Binding Path="DisplayName" /><Binding Path="ActualWidth" RelativeSource="{RelativeSource Self}" /><Binding RelativeSource="{RelativeSource Self}" /></MultiBinding></TextBlock.Text>
+                  </TextBlock>
+                  <TextBlock Text="{Binding FileName}" FontFamily="{StaticResource MonoFont}" FontSize="12" LineHeight="18" MaxHeight="36" Margin="0,6,0,6" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTip="{Binding FileName}" />
+                  <TextBlock Text="{Binding Details}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" MaxHeight="56" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -135,7 +140,7 @@
             <TextBlock Text="{Binding FilesPageLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
           </DockPanel>
           <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-            <Button Content="下载所选文件" Command="{Binding DownloadContentCommand}" Margin="0,0,8,0" />
+            <Button Style="{StaticResource PrimaryButton}" Content="下载所选文件" Command="{Binding DownloadContentCommand}" Margin="0,0,8,0" />
             <Button Content="打开文件网页" Command="{Binding OpenContentFileWebsiteCommand}" />
           </StackPanel>
         </Grid>
@@ -146,10 +151,11 @@
       <DockPanel Margin="0,8,0,0">
         <Button DockPanel.Dock="Right" Content="打开下载目录" Command="{Binding OpenContentFolderCommand}" Margin="10,0,0,0" />
         <StackPanel VerticalAlignment="Center">
-          <TextBlock Text="{Binding ContentDestination, StringFormat=下载到：{0}}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ContentDestination}" />
-          <TextBlock Text="{Binding ContentDownloadHint}" Foreground="DimGray" Margin="0,4,0,0" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ContentDestination, StringFormat=下载到：{0}}" FontFamily="{StaticResource MonoFont}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding ContentDestination}" />
+          <TextBlock Text="{Binding ContentDownloadHint}" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
         </StackPanel>
       </DockPanel>
     </StackPanel>
   </Grid>
 </UserControl>
+

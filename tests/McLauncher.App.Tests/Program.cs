@@ -14,8 +14,13 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        VerifyEmbeddedBackend();
         var app = new App();
-        app.InitializeComponent();
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/McLauncher.App;component/LauncherTheme.xaml", UriKind.Relative)
+        });
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         var bindingErrors = new BindingErrorListener();
         PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
@@ -92,8 +97,46 @@ internal static class Program
         model.SearchContentCommand.Execute(null);
         view.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         Require(!model.IsBusy && model.ContentMessage.Contains("API Key", StringComparison.Ordinal), "缺少密钥时应提示原因并恢复操作按钮。");
+        PresentationTests.Run();
         Require(bindingErrors.Errors.Count == 0, string.Join(Environment.NewLine, bindingErrors.Errors));
         Console.WriteLine("PASS 下载页 WPF 绑定、筛选切换、受限文件与最小尺寸布局");
+    }
+
+    private static void VerifyEmbeddedBackend()
+    {
+        var root = Directory.CreateTempSubdirectory("McLauncher.Backend.Tests.");
+        try
+        {
+            var executable = PortableMcDistribution.GetExecutablePath(root.FullName);
+            Require(File.Exists(Path.Combine(root.FullName, "LICENSE")), "内嵌后端应附带许可证。");
+            Require(File.Exists(Path.Combine(root.FullName, "README")), "内嵌后端应附带版本说明。");
+            var originalWrite = File.GetLastWriteTimeUtc(executable);
+            Require(PortableMcDistribution.GetExecutablePath(root.FullName) == executable
+                && File.GetLastWriteTimeUtc(executable) == originalWrite, "完整的后端缓存应直接复用。");
+            File.WriteAllText(executable, "damaged cache");
+            PortableMcDistribution.GetExecutablePath(root.FullName);
+            using var process = Process.Start(new ProcessStartInfo(executable)
+            {
+                Arguments = "--version", UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
+            }) ?? throw new InvalidOperationException("无法运行内嵌后端。");
+            if (!process.WaitForExit(10000))
+            {
+                process.Kill(true);
+                process.WaitForExit();
+                throw new InvalidOperationException("内嵌后端测试超时。");
+            }
+            Require(process.ExitCode == 0 && process.StandardOutput.ReadToEnd().Contains("5.0.5", StringComparison.Ordinal),
+                "损坏的后端缓存应修复为可运行的 PortableMC 5.0.5。");
+            Require(!Directory.EnumerateFiles(root.FullName, "*.tmp").Any(), "后端释放后不应留下临时文件。");
+            Console.WriteLine("PASS 内嵌后端释放、校验、缓存复用与损坏修复");
+        }
+        finally
+        {
+            if (!string.Equals(Path.GetDirectoryName(root.FullName), Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())),
+                StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("测试清理路径超出临时目录。");
+            root.Delete(true);
+        }
     }
 
     private static void Layout(FrameworkElement view, double width, double height)

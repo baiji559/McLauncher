@@ -1,11 +1,8 @@
 namespace McLauncher.Core;
 
-public sealed record MinecraftVersion(string Id, string Channel, DateTimeOffset? ReleasedAt);
+public sealed record MinecraftVersion(string Id, DateTimeOffset? ReleasedAt);
 
-public sealed record MinecraftAccount(string Username, string Uuid)
-{
-    public string DisplayName => $"{Username} ({Uuid})";
-}
+public sealed record MinecraftAccount(string Username, string Uuid);
 
 public sealed record MinecraftLocation(string MainDirectory, string SelectedDirectory, string? SuggestedVersion)
 {

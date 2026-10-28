@@ -31,7 +31,7 @@ public sealed class ContentCatalogClient(HttpClient httpClient)
                 search.Platform, search.Kind, Text(item, "project_id"), Text(item, "title"),
                 Text(item, "description"), Text(item, "author"), item.GetProperty("downloads").GetInt64(),
                 $"https://modrinth.com/{ModrinthType(search.Kind)}/{Uri.EscapeDataString(Text(item, "slug"))}")).ToArray();
-            return new(items, search.Offset, search.PageSize, root.GetProperty("total_hits").GetInt64());
+            return new(items, search.Offset, root.GetProperty("total_hits").GetInt64());
         }
         else
         {
@@ -46,7 +46,7 @@ public sealed class ContentCatalogClient(HttpClient httpClient)
                 search.Platform, search.Kind, item.GetProperty("id").ToString(), Text(item, "name"),
                 Text(item, "summary"), string.Join(", ", item.GetProperty("authors").EnumerateArray().Select(x => Text(x, "name"))),
                 item.GetProperty("downloadCount").GetInt64(), Text(item.GetProperty("links"), "websiteUrl"))).ToArray();
-            return new(items, search.Offset, search.PageSize, root.GetProperty("pagination").GetProperty("totalCount").GetInt64());
+            return new(items, search.Offset, root.GetProperty("pagination").GetProperty("totalCount").GetInt64());
         }
     }
 
@@ -63,17 +63,21 @@ public sealed class ContentCatalogClient(HttpClient httpClient)
                 ("loaders", string.IsNullOrWhiteSpace(loader) ? "" : JsonSerializer.Serialize(new[] { loader })));
             using var json = await GetAsync(url, null, cancellationToken);
             // Modrinth's version endpoint returns all versions and has no server-side pagination.
-            var versions = json.RootElement.EnumerateArray().OrderByDescending(x => Date(x, "date_published")).ToArray();
-            var items = versions.SelectMany(version => version.GetProperty("files").EnumerateArray()
+            var versions = json.RootElement.EnumerateArray();
+            var total = versions.Sum(version => version.GetProperty("files").GetArrayLength());
+            var items = versions.OrderByDescending(version => Date(version, "date_published"))
+                .SelectMany(version => version.GetProperty("files").EnumerateArray()
                 .OrderByDescending(file => file.TryGetProperty("primary", out var primary) && primary.GetBoolean())
-                .Select(file => new ContentFile(
-                    Text(version, "id"), Text(version, "name"), Text(file, "filename"), Text(file, "url"),
-                    file.GetProperty("size").GetInt64(), Join(version, "game_versions"), Join(version, "loaders"),
-                    Text(version, "version_type"), Date(version, "date_published"),
-                    project.WebsiteUrl.TrimEnd('/') + "/version/" + Uri.EscapeDataString(Text(version, "id")),
-                    Text(file.GetProperty("hashes"), "sha512"), Text(file.GetProperty("hashes"), "sha1"))))
+                .Select(file => (Version: version, File: file)))
+                .Skip(offset).Take(pageSize)
+                .Select(item => new ContentFile(
+                    Text(item.Version, "id"), Text(item.Version, "name"), Text(item.File, "filename"), Text(item.File, "url"),
+                    item.File.GetProperty("size").GetInt64(), Join(item.Version, "game_versions"), Join(item.Version, "loaders"),
+                    Text(item.Version, "version_type"), Date(item.Version, "date_published"),
+                    project.WebsiteUrl.TrimEnd('/') + "/version/" + Uri.EscapeDataString(Text(item.Version, "id")),
+                    Text(item.File.GetProperty("hashes"), "sha512"), Text(item.File.GetProperty("hashes"), "sha1")))
                 .ToArray();
-            return new(items.Skip(offset).Take(pageSize).ToArray(), offset, pageSize, items.Length);
+            return new(items, offset, total);
         }
         else
         {
@@ -92,7 +96,7 @@ public sealed class ContentCatalogClient(HttpClient httpClient)
                     Sha1: file.GetProperty("hashes").EnumerateArray()
                         .Where(hash => hash.GetProperty("algo").GetInt32() == 1)
                         .Select(hash => Text(hash, "value")).FirstOrDefault())).ToArray();
-            return new(items, offset, pageSize, root.GetProperty("pagination").GetProperty("totalCount").GetInt64());
+            return new(items, offset, root.GetProperty("pagination").GetProperty("totalCount").GetInt64());
         }
     }
 

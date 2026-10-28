@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -15,13 +14,12 @@ public sealed class PortableMcClient(string executablePath)
     public async Task<IReadOnlyList<MinecraftVersion>> GetReleaseVersionsAsync(
         string mainDirectory, CancellationToken cancellationToken)
     {
-        var result = await RunAsync(PortableMcArguments.SearchReleases(mainDirectory), cancellationToken);
-        return result.Events
-            .Where(e => e.Kind == "row" && e.Values.Count >= 3
+        var events = await RunAsync(PortableMcArguments.SearchReleases(mainDirectory), cancellationToken, "row");
+        return events
+            .Where(e => e.Values.Count >= 3
                 && e.Values[1].StartsWith("release", StringComparison.Ordinal))
             .Select(e => new MinecraftVersion(
                 e.Values[0],
-                e.Values[1].TrimEnd('*'),
                 DateTimeOffset.TryParse(e.Values[2], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
                     ? date
                     : null))
@@ -31,12 +29,11 @@ public sealed class PortableMcClient(string executablePath)
     public async Task<IReadOnlyList<MinecraftVersion>> GetLocalVersionsAsync(
         string mainDirectory, CancellationToken cancellationToken)
     {
-        var result = await RunAsync(PortableMcArguments.SearchLocal(mainDirectory), cancellationToken);
-        return result.Events
-            .Where(e => e.Kind == "row" && e.Values.Count >= 2 && e.Values[0] != "name")
+        var events = await RunAsync(PortableMcArguments.SearchLocal(mainDirectory), cancellationToken, "row");
+        return events
+            .Where(e => e.Values.Count >= 2 && e.Values[0] != "name")
             .Select(e => new MinecraftVersion(
                 e.Values[0],
-                "local",
                 DateTimeOffset.TryParse(e.Values[1], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
                     ? date
                     : null))
@@ -46,9 +43,9 @@ public sealed class PortableMcClient(string executablePath)
     public async Task<IReadOnlyList<MinecraftAccount>> GetAccountsAsync(
         string gameDirectory, CancellationToken cancellationToken)
     {
-        var result = await RunAsync(PortableMcArguments.ListAccounts(gameDirectory), cancellationToken);
-        return result.Events
-            .Where(e => e.Kind == "row" && e.Values.Count >= 2 && e.Values[0] != "username")
+        var events = await RunAsync(PortableMcArguments.ListAccounts(gameDirectory), cancellationToken, "row");
+        return events
+            .Where(e => e.Values.Count >= 2 && e.Values[0] != "username")
             .Select(e => new MinecraftAccount(e.Values[0], e.Values[1]))
             .ToArray();
     }
@@ -56,9 +53,8 @@ public sealed class PortableMcClient(string executablePath)
     public async Task<MinecraftAccount?> LoginMicrosoftAsync(
         string gameDirectory, CancellationToken cancellationToken)
     {
-        var result = await RunAsync(PortableMcArguments.LoginMicrosoft(gameDirectory), cancellationToken);
-        var authenticated = result.Events.LastOrDefault(e =>
-            e.Kind == "auth_account_authenticated" && e.Values.Count >= 2);
+        var events = await RunAsync(PortableMcArguments.LoginMicrosoft(gameDirectory), cancellationToken, "auth_account_authenticated");
+        var authenticated = events.LastOrDefault(e => e.Values.Count >= 2);
         return authenticated is null ? null : new MinecraftAccount(authenticated.Values[1], authenticated.Values[0]);
     }
 
@@ -79,8 +75,8 @@ public sealed class PortableMcClient(string executablePath)
         RunAsync(PortableMcArguments.LaunchMicrosoft(
             mainDirectory, gameDirectory, version, memoryMb, uuid), cancellationToken);
 
-    private async Task<PortableMcResult> RunAsync(
-        IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<PortableMcEvent>> RunAsync(
+        IReadOnlyList<string> arguments, CancellationToken cancellationToken, string? resultKind = null)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -99,7 +95,9 @@ public sealed class PortableMcClient(string executablePath)
             };
             foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
 
-            var events = new ConcurrentQueue<PortableMcEvent>();
+            var events = new List<PortableMcEvent>();
+            PortableMcEvent? lastError = null;
+            string? lastStderr = null;
             using var process = new Process { StartInfo = startInfo };
             if (!process.Start()) throw new InvalidOperationException("PortableMC 后端未能启动。");
 
@@ -116,33 +114,27 @@ public sealed class PortableMcClient(string executablePath)
             var stdout = ReadLinesAsync(process.StandardOutput, line =>
             {
                 var item = PortableMcEvent.Parse(line);
-                events.Enqueue(item);
+                if (item.Kind == resultKind) events.Add(item);
+                if (item.IsError) lastError = item;
                 EventReceived?.Invoke(this, item);
             });
             var stderr = ReadLinesAsync(process.StandardError, line =>
             {
-                var item = new PortableMcEvent("stderr", [line], line);
-                events.Enqueue(item);
-                EventReceived?.Invoke(this, item);
+                lastStderr = line;
+                EventReceived?.Invoke(this, new PortableMcEvent("stderr", [line]));
             });
 
-            try
+            // The cancellation registration terminates the process; drain both pipes before disposing it.
+            await process.WaitForExitAsync();
+            await Task.WhenAll(stdout, stderr);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (process.ExitCode != 0)
             {
-                await process.WaitForExitAsync(cancellationToken);
-                await Task.WhenAll(stdout, stderr);
+                var message = lastError is not null ? $"{lastError.Kind}: {string.Join(' ', lastError.Values)}"
+                    : lastStderr is not null ? $"stderr: {lastStderr}" : $"PortableMC 退出，代码 {process.ExitCode}。";
+                throw new PortableMcException(message, process.ExitCode);
             }
-            catch (OperationCanceledException)
-            {
-                try { if (!process.HasExited) process.Kill(true); }
-                catch (InvalidOperationException) { }
-                catch (Win32Exception) { }
-                await process.WaitForExitAsync();
-                await Task.WhenAll(stdout, stderr);
-                throw;
-            }
-            var result = new PortableMcResult(process.ExitCode, events.ToArray());
-            if (result.ExitCode != 0) throw PortableMcException.From(result);
-            return result;
+            return events;
         }
         finally
         {
@@ -156,20 +148,9 @@ public sealed class PortableMcClient(string executablePath)
     }
 }
 
-public sealed record PortableMcResult(int ExitCode, IReadOnlyList<PortableMcEvent> Events);
-
 public sealed class PortableMcException : Exception
 {
-    private PortableMcException(string message, int exitCode) : base(message) => ExitCode = exitCode;
+    internal PortableMcException(string message, int exitCode) : base(message) => ExitCode = exitCode;
 
     public int ExitCode { get; }
-
-    internal static PortableMcException From(PortableMcResult result)
-    {
-        var errors = result.Events.Where(e => e.IsError || e.Kind == "stderr").ToArray();
-        var message = errors.Length == 0
-            ? $"PortableMC 退出，代码 {result.ExitCode}。"
-            : string.Join(Environment.NewLine, errors.Select(e => $"{e.Kind}: {string.Join(' ', e.Values)}"));
-        return new PortableMcException(message, result.ExitCode);
-    }
 }

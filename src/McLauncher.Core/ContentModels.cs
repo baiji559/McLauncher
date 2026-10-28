@@ -16,7 +16,7 @@ public sealed record ContentProject(
     public string Subtitle => $"{Author} · {Downloads:N0} 次下载";
 }
 
-public sealed record ContentPage<T>(IReadOnlyList<T> Items, int Offset, int PageSize, long Total)
+public sealed record ContentPage<T>(IReadOnlyList<T> Items, int Offset, long Total)
 {
     public bool HasNext => Offset + Items.Count < Total && Items.Count > 0;
 }

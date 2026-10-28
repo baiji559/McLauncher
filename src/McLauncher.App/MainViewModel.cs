@@ -43,6 +43,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         ClearLogsCommand = new RelayCommand(Logs.Clear);
         InitializeContentCommands();
+        InitializePresentationCommands();
     }
 
     public ObservableCollection<string> Versions { get; } = ["release"];
@@ -59,31 +60,43 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public string GameDirectory
     {
         get => _gameDirectory;
-        set { if (Set(ref _gameDirectory, value)) Notify(nameof(ContentDestination)); }
+        set
+        {
+            if (!Set(ref _gameDirectory, value)) return;
+            Notify(nameof(ContentDestination));
+            RefreshDashboard();
+        }
     }
 
     public string SelectedVersion
     {
         get => _selectedVersion;
-        set { if (Set(ref _selectedVersion, value)) Notify(nameof(ContentDestination)); }
+        set
+        {
+            if (!Set(ref _selectedVersion, value)) return;
+            Notify(nameof(ContentDestination));
+            Notify(nameof(SelectedVersionDisplay));
+            RefreshInstalledMods();
+            NotifyVersionPresentation();
+        }
     }
 
     public MinecraftAccount? SelectedAccount
     {
         get => _selectedAccount;
-        set => Set(ref _selectedAccount, value);
+        set { if (Set(ref _selectedAccount, value)) NotifyAccountPresentation(); }
     }
 
     public string OfflineUsername
     {
         get => _offlineUsername;
-        set => Set(ref _offlineUsername, value);
+        set { if (Set(ref _offlineUsername, value)) NotifyAccountPresentation(); }
     }
 
     public int MemoryMb
     {
         get => _memoryMb;
-        set => Set(ref _memoryMb, value);
+        set { if (Set(ref _memoryMb, value)) Notify(nameof(MemoryLabel)); }
     }
 
     public string Status
@@ -129,6 +142,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
             NotifyContentCommands();
             Notify(nameof(CanEditContent));
+            Notify(nameof(LaunchButtonLabel));
         }
     }
 
@@ -139,6 +153,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         {
             if (!Set(ref _useMicrosoft, value)) return;
             Notify(nameof(UseOffline));
+            NotifyAccountPresentation();
             ((AsyncCommand)LoginMicrosoftCommand).NotifyCanExecuteChanged();
         }
     }
@@ -161,8 +176,9 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         await RunAsync("初始化", async cancellationToken =>
         {
-            await LoadAccountsAsync(settings.MicrosoftAccountUuid, cancellationToken);
-            await LoadVersionsAsync(cancellationToken);
+            var location = ValidateLocation();
+            await LoadAccountsAsync(location.MainDirectory, settings.MicrosoftAccountUuid, cancellationToken);
+            await LoadVersionsAsync(location, cancellationToken);
             Status = "准备就绪";
         });
     }
@@ -188,17 +204,19 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
+        var location = ValidateLocation();
         var selectedUuid = SelectedAccount?.Uuid;
-        await LoadAccountsAsync(selectedUuid, cancellationToken);
-        await LoadVersionsAsync(cancellationToken);
+        await LoadAccountsAsync(location.MainDirectory, selectedUuid, cancellationToken);
+        await LoadVersionsAsync(location, cancellationToken);
         Status = "版本和账号已刷新";
     }
 
     private async Task LoginMicrosoftAsync(CancellationToken cancellationToken)
     {
         DeviceCode = "";
-        var account = await _client.LoginMicrosoftAsync(ValidateLocation().MainDirectory, cancellationToken);
-        await LoadAccountsAsync(account?.Uuid, cancellationToken);
+        var mainDirectory = ValidateLocation().MainDirectory;
+        var account = await _client.LoginMicrosoftAsync(mainDirectory, cancellationToken);
+        await LoadAccountsAsync(mainDirectory, account?.Uuid, cancellationToken);
         Status = "微软账号登录完成";
     }
 
@@ -211,6 +229,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         AppendLog($"资源目录：{location.MainDirectory}；运行目录：{gameDirectory}");
         await _client.RepairAsync(
             location.MainDirectory, gameDirectory, version, MemoryMb, cancellationToken);
+        RefreshDashboard();
         Progress = 100;
         Status = $"{version} 下载或修复完成";
     }
@@ -231,19 +250,16 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
         else
         {
-            var username = OfflineUsername.Trim();
-            if (username.Length is < 3 or > 16 || username.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch != '_'))
-                throw new InvalidOperationException("离线用户名需为 3–16 位英文字母、数字或下划线。");
             await _client.LaunchOfflineAsync(
-                location.MainDirectory, gameDirectory, version, MemoryMb, username, cancellationToken);
+                location.MainDirectory, gameDirectory, version, MemoryMb, ValidateOfflineUsername(), cancellationToken);
         }
 
+        RefreshDashboard();
         Status = "游戏已退出";
     }
 
-    private async Task LoadVersionsAsync(CancellationToken cancellationToken)
+    private async Task LoadVersionsAsync(MinecraftLocation location, CancellationToken cancellationToken)
     {
-        var location = ValidateLocation();
         var selected = location.SuggestedVersion ?? SelectedVersion;
         var local = await _client.GetLocalVersionsAsync(location.MainDirectory, cancellationToken);
         IReadOnlyList<MinecraftVersion> releases = [];
@@ -264,12 +280,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         if (location.SuggestedVersion is { } suggested && !Versions.Contains(suggested)) Versions.Insert(0, suggested);
         if (Versions.Count == 0) Versions.Add("release");
         SelectedVersion = string.IsNullOrWhiteSpace(selected) ? Versions[0] : selected;
+        RefreshDashboard();
         if (local.Count > 0) AppendLog($"已识别 {local.Count} 个本地版本");
     }
 
-    private async Task LoadAccountsAsync(string? preferredUuid, CancellationToken cancellationToken)
+    private async Task LoadAccountsAsync(string mainDirectory, string? preferredUuid, CancellationToken cancellationToken)
     {
-        var accounts = await _client.GetAccountsAsync(ValidateLocation().MainDirectory, cancellationToken);
+        var accounts = await _client.GetAccountsAsync(mainDirectory, cancellationToken);
         Accounts.Clear();
         foreach (var account in accounts) Accounts.Add(account);
         SelectedAccount = Accounts.FirstOrDefault(account => account.Uuid == preferredUuid) ?? Accounts.FirstOrDefault();
@@ -321,6 +338,14 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private string ValidateVersion() => string.IsNullOrWhiteSpace(SelectedVersion)
         ? throw new InvalidOperationException("请选择游戏版本。")
         : SelectedVersion.Trim();
+
+    private string ValidateOfflineUsername()
+    {
+        var username = OfflineUsername.Trim();
+        if (username.Length is < 3 or > 16 || username.Any(ch => !char.IsAsciiLetterOrDigit(ch) && ch != '_'))
+            throw new InvalidOperationException("离线用户名需为 3–16 位英文字母、数字或下划线。");
+        return username;
+    }
 
     private void Cancel() => _operation?.Cancel();
 

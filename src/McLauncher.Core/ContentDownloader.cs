@@ -34,10 +34,10 @@ public sealed class ContentDownloader(HttpClient httpClient)
                 throw new InvalidDataException("下载被重定向到非 HTTPS 地址，已停止下载。");
             var total = response.Content.Headers.ContentLength ?? (file.Size > 0 ? file.Size : (long?)null);
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var sha512 = IncrementalHash.CreateHash(HashAlgorithmName.SHA512);
-            using var sha1 = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+            using var sha512 = string.IsNullOrWhiteSpace(file.Sha512) ? null : IncrementalHash.CreateHash(HashAlgorithmName.SHA512);
+            using var sha1 = string.IsNullOrWhiteSpace(file.Sha1) ? null : IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
             long received = 0;
-            await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+            await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, true))
             {
                 var buffer = new byte[81920];
                 int count;
@@ -45,8 +45,8 @@ public sealed class ContentDownloader(HttpClient httpClient)
                 while ((count = await source.ReadAsync(buffer, cancellationToken)) > 0)
                 {
                     await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
-                    sha512.AppendData(buffer, 0, count);
-                    sha1.AppendData(buffer, 0, count);
+                    sha512?.AppendData(buffer, 0, count);
+                    sha1?.AppendData(buffer, 0, count);
                     received += count;
                     if (Environment.TickCount64 - lastReport >= 100)
                     {
@@ -58,8 +58,8 @@ public sealed class ContentDownloader(HttpClient httpClient)
             }
             if ((file.Size > 0 && received != file.Size) || (total is { } expected && received != expected))
                 throw new InvalidDataException("下载文件长度与平台记录不符，请重新下载。");
-            VerifyHash(file.Sha512, sha512.GetHashAndReset());
-            VerifyHash(file.Sha1, sha1.GetHashAndReset());
+            if (sha512 is not null) VerifyHash(file.Sha512!, sha512.GetHashAndReset());
+            if (sha1 is not null) VerifyHash(file.Sha1!, sha1.GetHashAndReset());
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, destination, false);
             progress?.Report(new(received, received));
@@ -71,9 +71,9 @@ public sealed class ContentDownloader(HttpClient httpClient)
         }
     }
 
-    private static void VerifyHash(string? expected, byte[] actual)
+    private static void VerifyHash(string expected, byte[] actual)
     {
-        if (!string.IsNullOrWhiteSpace(expected) && !Convert.ToHexString(actual).Equals(expected, StringComparison.OrdinalIgnoreCase))
+        if (!Convert.ToHexString(actual).Equals(expected, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("文件哈希校验失败，请重新下载。");
     }
 

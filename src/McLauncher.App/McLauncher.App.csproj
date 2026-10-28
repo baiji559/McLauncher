@@ -6,11 +6,16 @@
     <ApplicationIcon />
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets\overworld-sunset.png" />
     <ProjectReference Include="..\McLauncher.Core\McLauncher.Core.csproj" />
-    <Content Include="..\..\tools\portablemc\**\*">
-      <Link>Tools\portablemc\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <PortableMcSource Include="..\..\tools\portablemc\*" />
+    <EmbeddedResource Include="$(BaseIntermediateOutputPath)portablemc.zip" LogicalName="McLauncher.PortableMc.zip" />
   </ItemGroup>
+  <Target Name="CompressPortableMc" BeforeTargets="PrepareForBuild"
+          Inputs="@(PortableMcSource)" Outputs="$(BaseIntermediateOutputPath)portablemc.zip">
+    <MakeDir Directories="$(BaseIntermediateOutputPath)" />
+    <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\..\..\tools\portablemc"
+                  DestinationFile="$(BaseIntermediateOutputPath)portablemc.zip" Overwrite="true" />
+  </Target>
 </Project>
 

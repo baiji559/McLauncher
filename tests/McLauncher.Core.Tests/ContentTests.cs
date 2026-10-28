@@ -168,6 +168,10 @@ internal static class ContentTests
         var second = await client.GetFilesAsync(project, "1.20.1", "fabric", 2, 2, null, default);
         Equal("def", second.Items[0].Sha1);
         Equal(false, second.HasNext);
+        var empty = await client.GetFilesAsync(project, "1.20.1", "fabric", 3, 2, null, default);
+        Equal(0, empty.Items.Count);
+        Equal(3L, empty.Total);
+        Equal(false, empty.HasNext);
 
         using var cfHandler = new StubHandler(request =>
         {
@@ -207,6 +211,10 @@ internal static class ContentTests
             Equal(false, File.Exists(Path.Combine(root.FullName, "bad.jar")));
             await ThrowsAsync<InvalidDataException>(() => downloader.DownloadAsync(file with { FileName = "truncated.jar", Size = bytes.Length + 1 }, root.FullName, null, default));
             Equal(false, File.Exists(Path.Combine(root.FullName, "truncated.jar")));
+            foreach (var (name, sha512, sha1) in new[] { ("sha512.jar", file.Sha512, (string?)null),
+                         ("sha1.jar", (string?)null, file.Sha1), ("no-hash.jar", (string?)null, (string?)null) })
+                await downloader.DownloadAsync(file with { FileName = name, Sha512 = sha512, Sha1 = sha1 }, root.FullName, null, default);
+            await ThrowsAsync<InvalidDataException>(() => downloader.DownloadAsync(file with { FileName = "bad512.jar", Sha512 = "00", Sha1 = null }, root.FullName, null, default));
             Equal(0, Directory.GetFiles(root.FullName, "*.part").Length);
         }
         finally { root.Delete(true); }
@@ -256,6 +264,30 @@ internal static class ContentTests
             Console.WriteLine("PASS Modrinth CDN 实际下载与哈希校验");
         }
         finally { root.Delete(true); }
+    }
+
+    public static async Task MeasureFilePageAllocationsAsync()
+    {
+        var json = JsonSerializer.Serialize(Enumerable.Range(0, 5000).Select(index => new
+        {
+            id = index.ToString(), name = "Version " + index, version_type = "release", date_published = "2025-01-01T00:00:00Z",
+            game_versions = new[] { "1.21.1" }, loaders = new[] { "fabric" },
+            files = new[] { new { filename = $"mod-{index}.jar", url = $"https://cdn.modrinth.com/mod-{index}.jar",
+                size = 3, primary = true, hashes = new { sha512 = "abc", sha1 = "def" } } }
+        }));
+        using var handler = new StubHandler(_ => JsonResponse(json));
+        using var http = new HttpClient(handler);
+        var client = new ContentCatalogClient(http);
+        var project = new ContentProject(ContentPlatform.Modrinth, ContentKind.Mod, "test", "Test", "", "", 0, "https://modrinth.com/mod/test");
+        for (var i = 0; i < 3; i++) await client.GetFilesAsync(project, "", "", 0, 20, null, default);
+        var before = GC.GetTotalAllocatedBytes(true);
+        for (var i = 0; i < 3; i++)
+        {
+            var page = await client.GetFilesAsync(project, "", "", 0, 20, null, default);
+            Equal(20, page.Items.Count);
+            Equal(5000L, page.Total);
+        }
+        Console.WriteLine($"MEASURE 5000-version page allocation: {(GC.GetTotalAllocatedBytes(true) - before) / 3:N0} bytes/request");
     }
 
     private static DirectoryInfo CreateTestDirectory() => Directory.CreateDirectory(Path.Combine(Environment.CurrentDirectory, "artifacts", "tests", Guid.NewGuid().ToString("N")));

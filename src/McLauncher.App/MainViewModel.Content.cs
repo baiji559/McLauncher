@@ -13,8 +13,8 @@ public sealed partial class MainViewModel
 {
     private HttpClient _contentHttp = null!;
     private bool _contentUseSystemProxy = true;
-    private ContentCatalogClient? _catalog;
-    private ContentDownloader? _downloader;
+    private ContentCatalogClient _catalog = null!;
+    private ContentDownloader _downloader = null!;
     private ContentPlatform _contentPlatform;
     private ContentKind _contentKind;
     private string _contentQuery = "";
@@ -78,7 +78,7 @@ public sealed partial class MainViewModel
     public string ContentQuery
     {
         get => _contentQuery;
-        set { if (Set(ref _contentQuery, value)) { ResetContentResults(); Notify(nameof(ContentSearchHint)); } }
+        set { if (Set(ref _contentQuery, value)) ResetContentResults(); }
     }
     public string ContentGameVersion
     {
@@ -217,7 +217,7 @@ public sealed partial class MainViewModel
 
     private Task SearchContentAsync(int offset) => RunContentOperationAsync("搜索资源", async token =>
     {
-        var page = await _catalog!.SearchAsync(new(ContentPlatform, ContentKind, ContentQuery, ContentGameVersion,
+        var page = await _catalog.SearchAsync(new(ContentPlatform, ContentKind, ContentQuery, ContentGameVersion,
             ContentLoader, offset, ContentPageSize), _curseForgeApiKey, token);
         SelectedContentProject = null;
         ClearContentFiles();
@@ -232,7 +232,7 @@ public sealed partial class MainViewModel
     private Task LoadContentFilesAsync(int offset) => RunContentOperationAsync("加载资源版本", async token =>
     {
         var project = SelectedContentProject ?? throw new InvalidOperationException("请先选择项目。");
-        var page = await _catalog!.GetFilesAsync(project, ContentGameVersion, ContentLoader, offset,
+        var page = await _catalog.GetFilesAsync(project, ContentGameVersion, ContentLoader, offset,
             ContentPageSize, _curseForgeApiKey, token);
         SelectedContentFile = null;
         ContentFiles.Clear();
@@ -247,7 +247,6 @@ public sealed partial class MainViewModel
 
     private async Task RunContentOperationAsync(string name, Func<CancellationToken, Task> action)
     {
-        if (IsBusy) return;
         await RunAsync(name, async token =>
         {
             try { await action(token); }
@@ -278,7 +277,7 @@ public sealed partial class MainViewModel
         });
         try
         {
-            var path = await _downloader!.DownloadAsync(file, destination, progress, token);
+            var path = await _downloader.DownloadAsync(file, destination, progress, token);
             Progress = 100;
             ContentMessage = $"已下载：{path}";
             Status = "资源下载完成";
