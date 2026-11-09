@@ -14,8 +14,12 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        VerifyEmbeddedBackend();
+        var arguments = Environment.GetCommandLineArgs();
+        if (arguments.Contains("--output")) { WorkflowRegressionTests.RunBackendFixtureAsync(arguments).GetAwaiter().GetResult(); return; }
+        var interactionOnly = Environment.GetCommandLineArgs().Contains("--interaction-only");
+        if (!interactionOnly) VerifyEmbeddedBackend();
         var app = new App();
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
             Source = new Uri("/McLauncher.App;component/LauncherTheme.xaml", UriKind.Relative)
@@ -24,14 +28,24 @@ internal static class Program
         var bindingErrors = new BindingErrorListener();
         PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
+        ResourceDownloadInteractionTests.Run();
+        LocalLibraryInteractionTests.Run();
+        if (interactionOnly)
+        {
+            WorkflowRegressionTests.Run();
+            ScrollingTests.Run();
+            Require(bindingErrors.Errors.Count == 0, string.Join(Environment.NewLine, bindingErrors.Errors));
+            return;
+        }
         using var model = new MainViewModel("unused.exe")
         {
             GameDirectory = Path.Combine(Environment.CurrentDirectory, "artifacts", "ui-game"),
             SelectedVersion = "1.20.1"
         };
         var view = new ContentDownloadsView { DataContext = model };
+        view.ShowBrowser();
         Layout(view, 1000, 480);
-        var combos = Descendants(view).OfType<ComboBox>().ToArray();
+        var combos = Descendants((FrameworkElement)view.FindName("BrowserContent")).OfType<ComboBox>().ToArray();
         Require(combos.Length == 3, "平台、类型、加载器下拉框必须存在。");
         Require(combos.All(combo => combo.SelectedIndex == 0), "默认筛选项必须正确绑定。");
         Require(model.ContentUseSystemProxy, "默认应跟随系统代理设置。");
@@ -97,7 +111,9 @@ internal static class Program
         model.SearchContentCommand.Execute(null);
         view.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         Require(!model.IsBusy && model.ContentMessage.Contains("API Key", StringComparison.Ordinal), "缺少密钥时应提示原因并恢复操作按钮。");
+        WorkflowRegressionTests.Run();
         PresentationTests.Run();
+        ScrollingTests.Run();
         Require(bindingErrors.Errors.Count == 0, string.Join(Environment.NewLine, bindingErrors.Errors));
         Console.WriteLine("PASS 下载页 WPF 绑定、筛选切换、受限文件与最小尺寸布局");
     }

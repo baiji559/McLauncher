@@ -5,5 +5,7 @@ obj/
 *.suo
 artifacts/
 .dotnet-home/
+.minecraft/
 portablemc_msa.json
-
+lattice.portable.json
+settings.json

@@ -27,23 +27,27 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private bool _isProgressIndeterminate;
     private bool _isBusy;
     private bool _useMicrosoft = true;
+    private bool? _reduceMotionPreference;
 
-    public MainViewModel(string portableMcPath)
+    public MainViewModel(string portableMcPath, SettingsStore? settingsStore = null)
     {
         _client = new PortableMcClient(portableMcPath);
         _client.EventReceived += OnPortableMcEvent;
-        _settingsStore = new SettingsStore();
+        _settingsStore = settingsStore ?? new SettingsStore();
+        _reduceMotionPreference = _settingsStore.Load().ReduceMotion;
         _dispatcher = Application.Current.Dispatcher;
 
-        RefreshCommand = new AsyncCommand(() => RunAsync("刷新版本和账号", RefreshAsync), () => !IsBusy);
+        RefreshCommand = new AsyncCommand(() => RunAsync("刷新版本和账号", RefreshAsync), () => !IsBusy && _gameOperation is null);
         LoginMicrosoftCommand = new AsyncCommand(
-            () => RunAsync("微软登录", LoginMicrosoftAsync), () => !IsBusy && UseMicrosoft);
-        RepairCommand = new AsyncCommand(() => RunAsync("下载或修复", RepairAsync), () => !IsBusy);
-        LaunchCommand = new AsyncCommand(() => RunAsync("启动游戏", LaunchAsync), () => !IsBusy);
+            () => RunAsync("微软登录", LoginMicrosoftAsync), () => !IsBusy && _gameOperation is null && UseMicrosoft);
+        RepairCommand = new AsyncCommand(() => RunAsync("下载或修复", RepairAsync), () => !IsBusy && _gameOperation is null);
+        LaunchCommand = new AsyncCommand(() => RunAsync("启动游戏", LaunchAsync), () => !IsBusy && _gameOperation is null);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         ClearLogsCommand = new RelayCommand(Logs.Clear);
         InitializeContentCommands();
+        InitializeLocalDownloadCommands();
         InitializePresentationCommands();
+        SystemParameters.StaticPropertyChanged += SystemPreferenceChanged;
     }
 
     public ObservableCollection<string> Versions { get; } = ["release"];
@@ -57,12 +61,41 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public ICommand CancelCommand { get; }
     public ICommand ClearLogsCommand { get; }
 
+    public bool ReduceMotion
+    {
+        get => _reduceMotionPreference ?? !SystemParameters.ClientAreaAnimation;
+        set
+        {
+            if (_reduceMotionPreference == value) return;
+            _reduceMotionPreference = value;
+            Notify(); Notify(nameof(EffectiveReduceMotion));
+        }
+    }
+    public bool EffectiveReduceMotion => ReduceMotion || !SystemParameters.ClientAreaAnimation;
+    private void SystemPreferenceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SystemParameters.ClientAreaAnimation)) return;
+        _dispatcher.BeginInvoke(() => { Notify(nameof(ReduceMotion)); Notify(nameof(EffectiveReduceMotion)); });
+    }
+
     public string GameDirectory
     {
         get => _gameDirectory;
         set
         {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(value)) value = MinecraftLocation.Resolve(Environment.ExpandEnvironmentVariables(value.Trim())).SelectedDirectory;
+            }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or IOException) { }
             if (!Set(ref _gameDirectory, value)) return;
+            InvalidateLocalDownloads();
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(value) && MinecraftLocation.Resolve(Environment.ExpandEnvironmentVariables(value.Trim())).SuggestedVersion is { } suggested)
+                    SelectedVersion = suggested;
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or IOException) { }
             Notify(nameof(ContentDestination));
             RefreshDashboard();
         }
@@ -102,7 +135,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     public string Status
     {
         get => _status;
-        private set => Set(ref _status, value);
+        private set { if (Set(ref _status, value)) Notify(nameof(ContentSelectionHint)); }
     }
 
     public string JavaStatus
@@ -135,14 +168,11 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         private set
         {
             if (!Set(ref _isBusy, value)) return;
-            ((AsyncCommand)RefreshCommand).NotifyCanExecuteChanged();
-            ((AsyncCommand)LoginMicrosoftCommand).NotifyCanExecuteChanged();
-            ((AsyncCommand)RepairCommand).NotifyCanExecuteChanged();
-            ((AsyncCommand)LaunchCommand).NotifyCanExecuteChanged();
-            ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+            NotifyCommands(RefreshCommand, LoginMicrosoftCommand, RepairCommand, LaunchCommand, CancelCommand);
             NotifyContentCommands();
             Notify(nameof(CanEditContent));
             Notify(nameof(LaunchButtonLabel));
+            Notify(nameof(LaunchAvailability));
         }
     }
 
@@ -154,7 +184,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             if (!Set(ref _useMicrosoft, value)) return;
             Notify(nameof(UseOffline));
             NotifyAccountPresentation();
-            ((AsyncCommand)LoginMicrosoftCommand).NotifyCanExecuteChanged();
+            NotifyCommands(LoginMicrosoftCommand);
         }
     }
 
@@ -168,11 +198,13 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     {
         var settings = _settingsStore.Load();
         GameDirectory = settings.GameDirectory;
-        SelectedVersion = settings.Version;
+        SelectedVersion = MinecraftLocation.Resolve(GameDirectory).SuggestedVersion ?? settings.Version;
         MemoryMb = Math.Clamp(settings.MemoryMb, 1024, 32768);
         UseMicrosoft = settings.UseMicrosoftAccount;
         OfflineUsername = settings.OfflineUsername;
         ContentUseSystemProxy = settings.ContentUseSystemProxy;
+        _reduceMotionPreference = settings.ReduceMotion;
+        Notify(nameof(ReduceMotion)); Notify(nameof(EffectiveReduceMotion));
 
         await RunAsync("初始化", async cancellationToken =>
         {
@@ -183,22 +215,31 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         });
     }
 
-    public void SaveSettings() => _settingsStore.Save(new LauncherSettings
+    public void SaveSettings()
     {
-        GameDirectory = GameDirectory,
-        Version = SelectedVersion,
-        MemoryMb = MemoryMb,
-        UseMicrosoftAccount = UseMicrosoft,
-        OfflineUsername = OfflineUsername,
-        MicrosoftAccountUuid = SelectedAccount?.Uuid,
-        ContentUseSystemProxy = ContentUseSystemProxy
-    });
+        try
+        {
+            _settingsStore.Save(new LauncherSettings
+            {
+                GameDirectory = GameDirectory, Version = SelectedVersion, MemoryMb = MemoryMb,
+                UseMicrosoftAccount = UseMicrosoft, OfflineUsername = OfflineUsername,
+                MicrosoftAccountUuid = SelectedAccount?.Uuid, ContentUseSystemProxy = ContentUseSystemProxy,
+                ReduceMotion = _reduceMotionPreference
+            });
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            Status = "无法保存设置，请检查启动器文件夹是否可写；当前会话仍可继续使用。";
+            AppendLog($"设置保存失败：{e.Message}");
+        }
+    }
 
     public void Dispose()
     {
+        SystemParameters.StaticPropertyChanged -= SystemPreferenceChanged;
         _client.EventReceived -= OnPortableMcEvent;
         _operation?.Cancel();
-        _operation?.Dispose();
+        _gameOperation?.Cancel();
         _contentHttp.Dispose();
     }
 
@@ -242,20 +283,20 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         SaveSettings();
         AppendLog($"资源目录：{location.MainDirectory}；运行目录：{gameDirectory}");
 
-        if (UseMicrosoft)
+        if (UseMicrosoft && SelectedAccount is null) throw new InvalidOperationException("请先登录并选择微软账号。");
+        var identity = UseMicrosoft ? SelectedAccount!.Uuid : ValidateOfflineUsername();
+        var gameOperation = new CancellationTokenSource();
+        _gameOperation = gameOperation;
+        _gameStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = cancellationToken.Register(() =>
         {
-            if (SelectedAccount is null) throw new InvalidOperationException("请先登录并选择微软账号。");
-            await _client.LaunchMicrosoftAsync(
-                location.MainDirectory, gameDirectory, version, MemoryMb, SelectedAccount.Uuid, cancellationToken);
-        }
-        else
-        {
-            await _client.LaunchOfflineAsync(
-                location.MainDirectory, gameDirectory, version, MemoryMb, ValidateOfflineUsername(), cancellationToken);
-        }
-
-        RefreshDashboard();
-        Status = "游戏已退出";
+            if (ReferenceEquals(_gameOperation, gameOperation)) gameOperation.Cancel();
+        });
+        var session = MonitorGameAsync(location.MainDirectory, gameDirectory, version, identity, UseMicrosoft, gameOperation);
+        await Task.WhenAny(_gameStarted.Task, session);
+        if (session.IsCompleted) { await session; Status = "游戏已退出"; }
+        // The backend keeps streaming game output until exit. Once `launched` arrives,
+        // only its session token remains alive; foreground resource operations are free.
     }
 
     private async Task LoadVersionsAsync(MinecraftLocation location, CancellationToken cancellationToken)
@@ -295,7 +336,8 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
     private async Task RunAsync(string operationName, Func<CancellationToken, Task> action)
     {
         if (IsBusy) return;
-        _operation = new CancellationTokenSource();
+        using var operation = new CancellationTokenSource();
+        _operation = operation;
         IsBusy = true;
         IsProgressIndeterminate = true;
         Progress = 0;
@@ -304,7 +346,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
 
         try
         {
-            await action(_operation.Token);
+            await action(operation.Token);
         }
         catch (OperationCanceledException)
         {
@@ -318,8 +360,7 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            _operation.Dispose();
-            _operation = null;
+            if (ReferenceEquals(_operation, operation)) _operation = null;
             IsProgressIndeterminate = false;
             IsBusy = false;
         }
@@ -373,11 +414,18 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
             case "loaded_jvm" when item.Values.Count >= 1:
                 JavaStatus = $"已选择 {item.Values[0]}";
                 break;
-            case "launched" when item.Values.Count >= 1:
+            case "launched" when item.Values.Count >= 1 && _gameOperation is not null:
+                IsGameRunning = true;
+                Progress = 100;
+                IsProgressIndeterminate = false;
                 Status = $"游戏运行中，PID {item.Values[0]}";
+                RefreshDashboard();
+                _gameStarted?.TrySetResult();
                 break;
             case "terminated" when item.Values.Count >= 1:
-                Status = $"游戏已退出，代码 {item.Values[0]}";
+                IsGameRunning = false;
+                if (!IsBusy) Status = $"游戏已退出，代码 {item.Values[0]}";
+                RefreshDashboard();
                 break;
         }
 
@@ -442,4 +490,3 @@ public sealed partial class MainViewModel : ViewModelBase, IDisposable
         while (Logs.Count > 1000) Logs.RemoveAt(0);
     }
 }
-

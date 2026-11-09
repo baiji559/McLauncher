@@ -6,7 +6,7 @@
     <ApplicationIcon />
   </PropertyGroup>
   <ItemGroup>
-    <Resource Include="Assets\overworld-sunset.png" />
+    <Resource Include="Assets\soft-voxel-village.png" />
     <ProjectReference Include="..\McLauncher.Core\McLauncher.Core.csproj" />
     <PortableMcSource Include="..\..\tools\portablemc\*" />
     <EmbeddedResource Include="$(BaseIntermediateOutputPath)portablemc.zip" LogicalName="McLauncher.PortableMc.zip" />
@@ -18,4 +18,3 @@
                   DestinationFile="$(BaseIntermediateOutputPath)portablemc.zip" Overwrite="true" />
   </Target>
 </Project>
-

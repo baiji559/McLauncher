@@ -1,0 +1,55 @@
+<UserControl x:Class="McLauncher.App.LocalDownloadsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:McLauncher.App">
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid Margin="0,0,0,16">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="160"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <TextBox x:Name="LocalQuery" Text="{Binding LocalDownloadQuery, UpdateSourceTrigger=PropertyChanged}" Tag="搜索文件名或实例" AutomationProperties.Name="搜索本地文件名或实例" Margin="0,0,12,0"/>
+   <ComboBox Grid.Column="1" ItemsSource="{Binding LocalDownloadKinds}" SelectedValue="{Binding LocalDownloadKind}" SelectedValuePath="Value" DisplayMemberPath="Label" AutomationProperties.Name="本地资源类型" Margin="0,0,12,0"/>
+   <Button Grid.Column="2" Content="刷新列表" Command="{Binding RefreshLocalDownloadsCommand}" Padding="16,10"/>
+  </Grid>
+  <StackPanel Grid.Row="1" Margin="0,0,0,14">
+   <TextBlock Text="{Binding LocalDownloadSummary}" FontWeight="SemiBold"/>
+   <TextBlock Text="{Binding LocalDownloadScope, StringFormat=扫描目录：{0}}" ToolTip="{Binding LocalDownloadScope}" Style="{StaticResource Caption}" FontSize="12" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+  </StackPanel>
+  <Grid Grid.Row="3">
+   <ListBox x:Name="LocalFilesList" ItemsSource="{Binding FilteredLocalDownloads}" AutomationProperties.Name="本地已下载资源" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource BaseListBoxItem}">
+     <Setter Property="MaxWidth" Value="{Binding ViewportWidth, RelativeSource={RelativeSource AncestorType=ScrollViewer}}"/>
+    </Style></ListBox.ItemContainerStyle>
+    <ListBox.ItemTemplate><DataTemplate>
+     <Grid Margin="0,3,0,3">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <StackPanel Margin="0,0,18,0">
+       <TextBlock Text="{Binding FileName}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FileName}"/>
+       <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" FontSize="12" Margin="0,7,0,0" TextWrapping="Wrap"/>
+       <TextBlock Text="{Binding FullPath}" Style="{StaticResource Caption}" FontSize="11" Margin="0,5,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}"/>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+       <Button Content="打开位置" Click="OpenLocation_Click" Style="{StaticResource GhostButton}" Padding="10,8" AutomationProperties.Name="{Binding FileName, StringFormat=打开 {0} 所在位置}"/>
+       <Button Content="删除" Click="Delete_Click" IsEnabled="{Binding DataContext.CanManageLocalFiles, RelativeSource={RelativeSource AncestorType=ListBox}}" Style="{StaticResource GhostButton}" Padding="10,8" Margin="8,0,0,0" AutomationProperties.Name="{Binding FileName, StringFormat=删除 {0}}" ToolTipService.ShowOnDisabled="True" ToolTip="移到回收站；文件被占用时，请先关闭占用程序。"/>
+      </StackPanel>
+     </Grid>
+    </DataTemplate></ListBox.ItemTemplate>
+   </ListBox>
+   <StackPanel Margin="16,28,16,0" IsHitTestVisible="False" Visibility="{Binding HasNoLocalDownloads, Converter={StaticResource BoolVisibility}}">
+    <TextBlock Text="没有匹配的本地资源" FontSize="21" FontWeight="SemiBold"/>
+    <TextBlock Text="清空搜索或切换为全部类型。若仍为空，请在设置中检查游戏目录，再刷新列表。" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+   </StackPanel>
+   <TextBlock Text="正在扫描本地资源…" Margin="16,28,0,0" Visibility="{Binding IsLocalScanBusy, Converter={StaticResource BoolVisibility}}" Style="{StaticResource Caption}" IsHitTestVisible="False"/>
+  </Grid>
+  <Border Grid.Row="2" Background="{StaticResource InputBrush}" Padding="16" CornerRadius="8" Margin="0,0,0,12" Visibility="{Binding HasPendingLocalDeletion, Converter={StaticResource BoolVisibility}}">
+   <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel Margin="0,0,16,0">
+     <TextBlock Text="{Binding PendingLocalDeletion.FileName, StringFormat=移到回收站：{0}}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+     <TextBlock Text="仅移除这个文件，可在 Windows 回收站还原。" Style="{StaticResource Caption}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"/>
+    </StackPanel>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+     <Button Content="取消" Command="{Binding CancelLocalDeletionCommand}" Style="{StaticResource GhostButton}" Padding="12,8" Margin="0,0,8,0"/>
+     <Button x:Name="ConfirmDelete" Content="确认删除" Command="{Binding ConfirmLocalDeletionCommand}" Padding="14,8"/>
+    </StackPanel>
+   </Grid>
+  </Border>
+  <TextBlock Grid.Row="4" Text="{Binding LocalDownloadMessage}" Style="{StaticResource Caption}" FontSize="12" Margin="0,12,0,18" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+ </Grid>
+</UserControl>

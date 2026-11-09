@@ -7,26 +7,35 @@ using McLauncher.Core;
 
 namespace McLauncher.App;
 
-public enum LauncherPage { Home, Versions, Content, Settings, Logs }
+public enum LauncherPage { Home, Mods, Content, Settings, Instance, Versions, Logs }
 
 public sealed record LocalVersionEntry(string Id, string Loader)
 {
     public string Detail => $"Java 版 · {Loader}";
 }
 
-public sealed record InstalledModEntry(string FileName)
-{
-    public string DisplayName => Path.GetFileNameWithoutExtension(FileName);
-}
-
 public sealed partial class MainViewModel
 {
     private LauncherPage _currentPage;
-    private int _installedModCount;
+    private string _versionQuery = "";
 
     public ObservableCollection<LocalVersionEntry> LocalVersions { get; } = [];
     public ObservableCollection<InstalledModEntry> InstalledMods { get; } = [];
     public ICommand OpenGameFolderCommand { get; private set; } = null!;
+    public string VersionQuery
+    {
+        get => _versionQuery;
+        set
+        {
+            if (!Set(ref _versionQuery, value)) return;
+            Notify(nameof(FilteredVersions));
+            Notify(nameof(HasNoFilteredVersions));
+        }
+    }
+    public IEnumerable<LocalVersionEntry> FilteredVersions => LocalVersions.Where(version =>
+        version.Id.Contains(VersionQuery.Trim(), StringComparison.OrdinalIgnoreCase)
+        || version.Loader.Contains(VersionQuery.Trim(), StringComparison.OrdinalIgnoreCase));
+    public bool HasNoFilteredVersions => !FilteredVersions.Any();
 
     public LauncherPage CurrentPage
     {
@@ -34,11 +43,15 @@ public sealed partial class MainViewModel
         set
         {
             if (!Set(ref _currentPage, value)) return;
-            foreach (var property in new[] { nameof(IsHomePage), nameof(IsVersionsPage), nameof(IsContentPage), nameof(IsSettingsPage), nameof(IsLogsPage) }) Notify(property);
+            Notify(nameof(CurrentPageTitle));
+            foreach (var property in new[] { nameof(IsHomePage), nameof(IsModsPage), nameof(IsInstancePage), nameof(IsLaunchSection), nameof(IsVersionsPage), nameof(IsContentPage), nameof(IsSettingsPage), nameof(IsLogsPage), nameof(FooterLabel) }) Notify(property);
         }
     }
 
     public bool IsHomePage { get => CurrentPage == LauncherPage.Home; set { if (value) CurrentPage = LauncherPage.Home; } }
+    public bool IsLaunchSection { get => CurrentPage is LauncherPage.Home or LauncherPage.Instance or LauncherPage.Versions; set { if (value && !IsLaunchSection) CurrentPage = LauncherPage.Home; } }
+    public bool IsModsPage { get => CurrentPage == LauncherPage.Mods; set { if (value) CurrentPage = LauncherPage.Mods; } }
+    public bool IsInstancePage => CurrentPage == LauncherPage.Instance;
     public bool IsVersionsPage { get => CurrentPage == LauncherPage.Versions; set { if (value) CurrentPage = LauncherPage.Versions; } }
     public bool IsContentPage { get => CurrentPage == LauncherPage.Content; set { if (value) CurrentPage = LauncherPage.Content; } }
     public bool IsSettingsPage { get => CurrentPage == LauncherPage.Settings; set { if (value) CurrentPage = LauncherPage.Settings; } }
@@ -47,15 +60,25 @@ public sealed partial class MainViewModel
     public string SelectedVersionDisplay => SelectedVersion == "release" ? "最新正式版" : SelectedVersion;
     public string AccountDisplayName => UseMicrosoft ? SelectedAccount?.Username ?? "未登录" : string.IsNullOrWhiteSpace(OfflineUsername) ? "Player" : OfflineUsername;
     public string AccountModeLabel => UseMicrosoft ? "微软正版账号" : "离线账号";
+    public string CurrentPageTitle => CurrentPage switch
+    {
+        LauncherPage.Mods => "模组管理",
+        LauncherPage.Instance => "实例详情",
+        LauncherPage.Versions => "游戏版本",
+        LauncherPage.Content => "资源中心",
+        LauncherPage.Settings => "设置",
+        LauncherPage.Logs => "运行日志",
+        _ => "开始游戏"
+    };
+    public string LaunchAvailability => IsGameRunning ? "游戏正在运行；可继续搜索和下载资源。"
+        : IsBusy ? "正在处理，完成后可切换版本或修改配置。"
+        : UseMicrosoft && SelectedAccount is null ? "启动前，请在账号设置中登录微软账号。"
+        : IsSelectedVersionInstalled ? "游戏文件已就绪。" : "首次启动会下载游戏文件。";
     public string MemoryLabel => $"{MemoryMb / 1024d:0.#} GB";
-    public string LaunchButtonLabel => IsBusy ? "正在处理…" : "启动游戏";
-    public bool HasLocalVersions => LocalVersions.Count > 0;
-    public IEnumerable<LocalVersionEntry> RecentVersions => LocalVersions.Take(3);
-    public bool HasNoLocalVersions => !HasLocalVersions;
-    public string LocalVersionSummary => $"{LocalVersions.Count} 个本地版本";
-    public bool HasInstalledMods => _installedModCount > 0;
-    public bool HasNoInstalledMods => !HasInstalledMods;
-    public string InstalledModSummary => $"{_installedModCount} 个模组";
+    public string LaunchButtonLabel => IsGameRunning ? "游戏运行中" : IsBusy ? "正在处理…" : "启动游戏";
+    public bool HasNoLocalVersions => LocalVersions.Count == 0;
+    public bool HasNoInstalledMods => InstalledMods.Count == 0;
+    public string InstalledModSummary => $"{InstalledMods.Count} 个模组";
     public bool IsSelectedVersionInstalled => LocalVersions.Any(version => version.Id == SelectedVersion);
     public string InstallationLabel => IsSelectedVersionInstalled ? "已安装" : "首次启动时下载";
     public string SelectedLoaderLabel => LocalVersions.FirstOrDefault(version => version.Id == SelectedVersion)?.Loader ?? "原版";
@@ -80,6 +103,7 @@ public sealed partial class MainViewModel
     {
         Notify(nameof(AccountDisplayName));
         Notify(nameof(AccountModeLabel));
+        Notify(nameof(LaunchAvailability));
     }
 
     public void RefreshDashboard()
@@ -110,14 +134,15 @@ public sealed partial class MainViewModel
         }
 
         RefreshInstalledMods();
-        foreach (var property in new[] { nameof(HasLocalVersions), nameof(HasNoLocalVersions), nameof(LocalVersionSummary), nameof(RecentVersions) }) Notify(property);
+        Notify(nameof(HasNoLocalVersions));
+        Notify(nameof(FilteredVersions));
+        Notify(nameof(HasNoFilteredVersions));
         NotifyVersionPresentation();
     }
 
     private void RefreshInstalledMods()
     {
         InstalledMods.Clear();
-        _installedModCount = 0;
         try
         {
             if (!string.IsNullOrWhiteSpace(GameDirectory))
@@ -126,24 +151,25 @@ public sealed partial class MainViewModel
                 var directory = Path.Combine(location.GetGameDirectory(SelectedVersion.Trim()), "mods");
                 if (Directory.Exists(directory))
                 {
-                    var mods = Directory.EnumerateFiles(directory, "*.jar").Select(Path.GetFileName).ToArray();
-                    _installedModCount = mods.Length;
-                    foreach (var name in mods.Order().Take(3)) InstalledMods.Add(new(name!));
+                    var mods = Directory.EnumerateFiles(directory).Where(path => path.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".jar.disabled", StringComparison.OrdinalIgnoreCase));
+                    foreach (var path in mods.Order()) InstalledMods.Add(new InstalledModEntry(path, OnModChanged));
                 }
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
 
-        Notify(nameof(HasInstalledMods));
         Notify(nameof(HasNoInstalledMods));
         Notify(nameof(InstalledModSummary));
+        NotifyModPresentation();
     }
 
     private void NotifyVersionPresentation()
     {
+        NotifySoftVoxelPresentation();
         Notify(nameof(IsSelectedVersionInstalled));
         Notify(nameof(InstallationLabel));
         Notify(nameof(SelectedLoaderLabel));
+        Notify(nameof(LaunchAvailability));
     }
 
     private static string DetectLoader(string id, string manifest)

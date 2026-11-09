@@ -148,7 +148,9 @@ public sealed class ContentCatalogClient(HttpClient httpClient)
     private static string Text(JsonElement item, string name) =>
         item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
 
-    private static DateTimeOffset Date(JsonElement item, string name) => DateTimeOffset.Parse(Text(item, name), CultureInfo.InvariantCulture);
+    private static DateTimeOffset Date(JsonElement item, string name) =>
+        DateTimeOffset.TryParse(Text(item, name), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date)
+            ? date : DateTimeOffset.MinValue;
     private static string Join(JsonElement item, string name) => string.Join(", ", item.GetProperty(name).EnumerateArray().Select(x => x.GetString()));
     private static string Number(int number) => number.ToString(CultureInfo.InvariantCulture);
 

@@ -33,4 +33,3 @@ public static class PortableMcArguments
         [.. Base(mainDirectory, "start"), "--mc-dir", Path.GetFullPath(gameDirectory),
             "--jvm-policy", "system-then-mojang", $"--jvm-arg=-Xmx{memoryMb}M"];
 }
-

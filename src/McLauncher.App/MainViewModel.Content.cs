@@ -27,6 +27,10 @@ public sealed partial class MainViewModel
     private ContentPage<ContentFile>? _filePage;
     private string? _curseForgeApiKey = Environment.GetEnvironmentVariable("CURSEFORGE_API_KEY");
     private const int ContentPageSize = 20;
+    private string _contentEmptyTitle = "查找模组与资源";
+    private string _contentEmptyHint = "输入关键词后搜索，留空可浏览热门项目。";
+    public string ContentEmptyTitle { get => _contentEmptyTitle; private set => Set(ref _contentEmptyTitle, value); }
+    public string ContentEmptyHint { get => _contentEmptyHint; private set => Set(ref _contentEmptyHint, value); }
 
     public IReadOnlyList<ContentChoice<ContentPlatform>> ContentPlatforms { get; } =
     [new(ContentPlatform.Modrinth, "Modrinth"), new(ContentPlatform.CurseForge, "CurseForge")];
@@ -146,6 +150,27 @@ public sealed partial class MainViewModel
         set { if (Set(ref _selectedContentFile, value)) NotifyContentCommands(); }
     }
 
+    public string ContentSelectionHint
+    {
+        get
+        {
+            if (IsBusy) return Status;
+            if (SelectedContentFile is not { } file) return SelectedContentProject is null ? "选择文件后查看版本与状态" : ContentMessage;
+            try
+            {
+                if (File.Exists(Path.Combine(ContentDestination, Path.GetFileName(file.FileName)))) return "已下载 · 文件已在本地";
+            }
+            catch (Exception e) when (e is IOException or ArgumentException or NotSupportedException) { }
+            static bool Includes(string values, string expected) => values.Split([',', ';', ' ', '/'], StringSplitOptions.RemoveEmptyEntries)
+                .Contains(expected, StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(ContentGameVersion) && !string.IsNullOrWhiteSpace(file.GameVersions)
+                && !Includes(file.GameVersions, ContentGameVersion.Trim())) return "游戏版本不匹配，请核对后下载";
+            if (!string.IsNullOrWhiteSpace(ContentLoader) && !string.IsNullOrWhiteSpace(file.Loaders)
+                && !Includes(file.Loaders, ContentLoader)) return "加载器不匹配，请核对后下载";
+            return string.IsNullOrWhiteSpace(file.DownloadUrl) ? "此文件需从官网获取" : "可下载 · 请核对版本与加载器";
+        }
+    }
+
     private void InitializeContentCommands()
     {
         InitializeContentNetwork();
@@ -202,6 +227,8 @@ public sealed partial class MainViewModel
         ClearContentFiles();
         _projectPage = null;
         ContentMessage = "筛选条件已更新，点击搜索获取资源。";
+        ContentEmptyTitle = "按当前条件搜索";
+        ContentEmptyHint = "筛选已更新。点击搜索，获取匹配的资源。";
         Notify(nameof(ContentSearchHint));
         Notify(nameof(ContentPageLabel));
         NotifyContentCommands();
@@ -217,6 +244,8 @@ public sealed partial class MainViewModel
 
     private Task SearchContentAsync(int offset) => RunContentOperationAsync("搜索资源", async token =>
     {
+        ContentEmptyTitle = "正在搜索";
+        ContentEmptyHint = "正在读取资源列表，可在底部取消。";
         var page = await _catalog.SearchAsync(new(ContentPlatform, ContentKind, ContentQuery, ContentGameVersion,
             ContentLoader, offset, ContentPageSize), _curseForgeApiKey, token);
         SelectedContentProject = null;
@@ -224,6 +253,8 @@ public sealed partial class MainViewModel
         ContentProjects.Clear();
         foreach (var project in page.Items) ContentProjects.Add(project);
         _projectPage = page;
+        ContentEmptyTitle = "没有匹配的资源";
+        ContentEmptyHint = "试试其他关键词，或清空版本与加载器后重新搜索。";
         Notify(nameof(ContentPageLabel));
         ContentMessage = page.Items.Count == 0 ? "当前平台没有找到匹配资源，可清空版本/加载器筛选或切换平台；CurseForge 需要 API Key。" : "选择项目，再点击“查看版本”。";
         Status = $"搜索完成，共 {page.Total:N0} 项";
@@ -232,8 +263,12 @@ public sealed partial class MainViewModel
     private Task LoadContentFilesAsync(int offset) => RunContentOperationAsync("加载资源版本", async token =>
     {
         var project = SelectedContentProject ?? throw new InvalidOperationException("请先选择项目。");
-        var page = await _catalog.GetFilesAsync(project, ContentGameVersion, ContentLoader, offset,
+        ContentMessage = "正在读取兼容版本，请稍候…";
+        var gameVersion = ContentGameVersion;
+        var loader = ContentLoader;
+        var page = await _catalog.GetFilesAsync(project, gameVersion, loader, offset,
             ContentPageSize, _curseForgeApiKey, token);
+        if (SelectedContentProject != project || ContentGameVersion != gameVersion || ContentLoader != loader) return;
         SelectedContentFile = null;
         ContentFiles.Clear();
         foreach (var file in page.Items) ContentFiles.Add(file);
@@ -245,6 +280,17 @@ public sealed partial class MainViewModel
         Status = "资源版本已加载";
     });
 
+    // Featured resources share the catalog, compatibility filters and download command.
+    public async Task PrepareFeaturedResourceAsync(ContentProject project)
+    {
+        if (IsBusy) return;
+        if (SelectedContentProject?.Id == project.Id && ContentFiles.Count > 0) return;
+        ContentPlatform = project.Platform;
+        ContentKind = project.Kind;
+        SelectedContentProject = project;
+        await LoadContentFilesAsync(0);
+    }
+
     private async Task RunContentOperationAsync(string name, Func<CancellationToken, Task> action)
     {
         await RunAsync(name, async token =>
@@ -252,11 +298,15 @@ public sealed partial class MainViewModel
             try { await action(token); }
             catch (OperationCanceledException exception) when (!token.IsCancellationRequested)
             {
+                ContentEmptyTitle = "连接超时";
+                ContentEmptyHint = "检查网络后再次搜索，或展开网络设置切换连接方式。";
                 ContentMessage = "平台请求超时，请检查网络或在“网络设置”切换系统代理/直连后重试。";
                 throw new TimeoutException(ContentMessage, exception);
             }
             catch (Exception exception)
             {
+                ContentEmptyTitle = exception is OperationCanceledException ? "搜索已取消" : "暂时无法读取资源";
+                ContentEmptyHint = exception is OperationCanceledException ? "点击搜索可以重新开始。" : "详细原因见下方提示。处理后点击搜索重试。";
                 ContentMessage = exception is OperationCanceledException ? "操作已取消。" : exception.Message;
                 throw;
             }
@@ -284,6 +334,8 @@ public sealed partial class MainViewModel
             AppendLog(ContentMessage);
             if (project.Kind == ContentKind.Modpack) AppendLog(ContentDownloadHint);
             Notify(nameof(ContentDestination));
+            RefreshInstalledMods();
+            await RefreshLocalDownloadsAsync();
         }
         catch (OperationCanceledException exception) when (!token.IsCancellationRequested)
         {
@@ -299,11 +351,10 @@ public sealed partial class MainViewModel
 
     private void NotifyContentCommands()
     {
-        foreach (var command in new[] { SearchContentCommand, PreviousContentPageCommand, NextContentPageCommand,
-            LoadContentFilesCommand, PreviousFilesPageCommand, NextFilesPageCommand, DownloadContentCommand })
-            (command as AsyncCommand)?.NotifyCanExecuteChanged();
-        foreach (var command in new[] { OpenContentWebsiteCommand, OpenContentFileWebsiteCommand, OpenContentFolderCommand })
-            (command as RelayCommand)?.NotifyCanExecuteChanged();
+        Notify(nameof(ContentSelectionHint));
+        NotifyCommands(SearchContentCommand, PreviousContentPageCommand, NextContentPageCommand,
+            LoadContentFilesCommand, PreviousFilesPageCommand, NextFilesPageCommand, DownloadContentCommand,
+            OpenContentWebsiteCommand, OpenContentFileWebsiteCommand, OpenContentFolderCommand);
     }
 
     private void OpenContentUrl(string? address)

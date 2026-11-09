@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Input;
 
 namespace McLauncher.App;
 
@@ -17,5 +18,9 @@ public abstract class ViewModelBase : INotifyPropertyChanged
 
     protected void Notify([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-}
 
+    protected static void NotifyCommands(params ICommand?[] commands)
+    {
+        foreach (var command in commands.OfType<LauncherCommand>()) command.NotifyCanExecuteChanged();
+    }
+}

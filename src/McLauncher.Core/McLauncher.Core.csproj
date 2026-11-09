@@ -6,4 +6,3 @@
     <EmbeddedResource Include="mod-search-names.json" />
   </ItemGroup>
 </Project>
-

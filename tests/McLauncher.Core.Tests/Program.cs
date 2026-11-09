@@ -1,5 +1,10 @@
 using McLauncher.Core;
 
+if (args.Length == 2 && args[0] == "--inspect-game")
+{
+    LocalContentTests.Inspect(args[1]);
+    return;
+}
 if (args.Contains("--output"))
 {
     await PortableMcTests.RunBackendFixtureAsync(args);
@@ -19,10 +24,12 @@ var tests = new (string Name, Action Run)[]
     ("构造修复参数", BuildRepairArguments),
     ("构造本地搜索参数", BuildLocalSearchArguments),
     ("识别隔离版本目录", ResolveIsolatedVersionDirectory),
+    ("本地资源汇总、natives 目录恢复与删除边界", LocalContentTests.LibraryAndLocations),
     ("后端结果、日志释放、错误与取消", PortableMcTests.ProcessOutput),
     ("双平台四类资源搜索及认证", ContentTests.CatalogRequests),
     ("中文别名双平台搜索与相关性排序", ContentTests.ChineseSearch),
     ("文件列表筛选分页与受限直链", ContentTests.FileLists),
+    ("双平台异常日期容错、未知日期展示与版本排序", ContentTests.InvalidDates),
     ("下载哈希长度校验与禁止覆盖", ContentTests.DownloadIntegrity),
     ("安全文件名取消清理与下载目录", ContentTests.DownloadSafety),
     ("TLS 握手失败后兼容重试", NetworkTests.TlsRecovery),
@@ -129,4 +136,3 @@ static int IndexOf(IReadOnlyList<string> values, string value)
         if (values[index] == value) return index;
     return -1;
 }
-

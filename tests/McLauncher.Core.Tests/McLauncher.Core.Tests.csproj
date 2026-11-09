@@ -7,4 +7,3 @@
     <ProjectReference Include="..\..\src\McLauncher.Core\McLauncher.Core.csproj" />
   </ItemGroup>
 </Project>
-

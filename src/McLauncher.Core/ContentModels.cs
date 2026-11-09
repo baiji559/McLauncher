@@ -27,7 +27,9 @@ public sealed record ContentFile(
     string WebsiteUrl, string? Sha512 = null, string? Sha1 = null)
 {
     public string DisplayName => $"{Name} · {ReleaseType}";
-    public string Details => $"{GameVersions} · {Loaders} · {Size / 1048576d:0.##} MB · {PublishedAt:yyyy-MM-dd}";
+    public string PublishedDate => PublishedAt == DateTimeOffset.MinValue ? "日期未知"
+        : PublishedAt.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    public string Details => $"{GameVersions} · {Loaders} · {Size / 1048576d:0.##} MB · {PublishedDate}";
 }
 
 public sealed record ContentDownloadProgress(long Received, long? Total)

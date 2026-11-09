@@ -1,0 +1,8 @@
+{
+  "asset": "soft-voxel-village.png",
+  "generator": "Built-in image_gen",
+  "date": "2026-10-29",
+  "origin": "Generated specifically for the LATTICE launcher redesign; not an official Minecraft promotional image.",
+  "promptFile": "../../../docs/scene-prompt.txt",
+  "pixelEditing": "None. PNG text metadata only; UI fades applied at runtime in WPF."
+}

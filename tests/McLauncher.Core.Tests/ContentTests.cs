@@ -9,6 +9,7 @@ internal static class ContentTests
     public static void CatalogRequests() => CatalogRequestsAsync().GetAwaiter().GetResult();
     public static void ChineseSearch() => ChineseSearchAsync().GetAwaiter().GetResult();
     public static void FileLists() => FileListsAsync().GetAwaiter().GetResult();
+    public static void InvalidDates() => InvalidDatesAsync().GetAwaiter().GetResult();
     public static void DownloadIntegrity() => DownloadIntegrityAsync().GetAwaiter().GetResult();
     public static void DownloadSafety() => DownloadSafetyAsync().GetAwaiter().GetResult();
 
@@ -187,6 +188,37 @@ internal static class ContentTests
         Equal("https://www.curseforge.com/minecraft/mc-mods/test/files/99", cfPage.Items[0].WebsiteUrl);
         Equal("def", cfPage.Items[0].Sha1);
         Equal(false, cfPage.HasNext);
+    }
+
+    private static async Task InvalidDatesAsync()
+    {
+        foreach (var platform in Enum.GetValues<ContentPlatform>())
+        foreach (var value in new[] { "\"not-a-date\"", "\"\"", "null", "42", "missing" })
+        {
+            var dateProperty = value == "missing" ? "" : $",\"{(platform == ContentPlatform.Modrinth ? "date_published" : "fileDate")}\":{value}";
+            var body = platform == ContentPlatform.Modrinth
+                ? """
+                  [{"id":"unknown","name":"Unknown"__DATE__,"version_type":"release","game_versions":["1.20.1"],"loaders":["fabric"],"files":[{"filename":"unknown.jar","url":"https://example.invalid/unknown.jar","size":3,"hashes":{}}]},
+                   {"id":"valid","name":"Valid","date_published":"2025-01-01T12:34:56Z","version_type":"release","game_versions":["1.20.1"],"loaders":["fabric"],"files":[{"filename":"valid.jar","url":"https://example.invalid/valid.jar","size":3,"hashes":{}}]}]
+                  """
+                : """
+                  {"data":[{"id":1,"displayName":"Unknown"__DATE__,"fileName":"unknown.jar","downloadUrl":"https://example.invalid/unknown.jar","fileLength":3,"gameVersions":["1.20.1"],"releaseType":1,"hashes":[]}],"pagination":{"totalCount":1}}
+                  """;
+            using var handler = new StubHandler(_ => JsonResponse(body.Replace("__DATE__", dateProperty)));
+            using var http = new HttpClient(handler);
+            var project = new ContentProject(platform, ContentKind.Mod, "test", "Test", "", "", 0, "https://example.invalid/project");
+            var page = await new ContentCatalogClient(http).GetFilesAsync(project, "", "", 0, 20, "fixture-key", default);
+            var unknown = page.Items.Single(file => file.FileName == "unknown.jar");
+            Equal(DateTimeOffset.MinValue, unknown.PublishedAt);
+            Equal(true, unknown.Details.Contains("日期未知", StringComparison.Ordinal));
+            Equal(false, unknown.Details.Contains("0001", StringComparison.Ordinal));
+            if (platform == ContentPlatform.Modrinth)
+            {
+                Equal("valid.jar", page.Items[0].FileName);
+                Equal("2025-01-01", page.Items[0].PublishedDate);
+                Equal(2L, page.Total);
+            }
+        }
     }
 
     private static async Task DownloadIntegrityAsync()

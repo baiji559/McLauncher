@@ -12,4 +12,3 @@ public sealed record PortableMcEvent(string Kind, IReadOnlyList<string> Values)
 
     public static string DecodeText(string value) => value.Replace("\\n", "\n").Replace("\\t", "\t");
 }
-
